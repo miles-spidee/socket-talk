@@ -1,4 +1,4 @@
--# NOTE: This project is still under work , not all features are implemented yet.
+> NOTE: This project is still under work , not all features are implemented yet.
 
 # SocketTalk
 
