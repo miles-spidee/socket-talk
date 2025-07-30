@@ -23,6 +23,16 @@ const io = new Server(server, {
 let users = {};
 
 io.on('connection', (socket) => {
+  // Typing indicator
+  socket.on('typing', (data) => {
+    // Find recipient socket id
+    const recipientId = Object.keys(users).find(
+      (id) => users[id] === data.recipient
+    );
+    if (recipientId) {
+      io.to(recipientId).emit('typing', data);
+    }
+  });
   console.log(`⚡ User connected: ${socket.id}`);
 
   // When a user joins, set their username

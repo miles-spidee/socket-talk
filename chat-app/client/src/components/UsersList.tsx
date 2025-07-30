@@ -10,6 +10,7 @@ interface UsersListProps {
 
 const UsersList: React.FC<UsersListProps> = ({ currentUser, onSelect }) => {
   const [users, setUsers] = useState<string[]>([]);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
   useEffect(() => {
     socket.emit('join', currentUser);
@@ -19,8 +20,22 @@ const UsersList: React.FC<UsersListProps> = ({ currentUser, onSelect }) => {
       const uniqueUsers = Array.from(new Set(userList.filter(u => u !== currentUser)));
       setUsers(uniqueUsers);
     });
+    // Listen for typing events from other users
+    const handleTyping = (data: { sender: string; recipient: string; typing: boolean }) => {
+      if (data.recipient === currentUser) {
+        setTypingUsers(prev => {
+          if (data.typing) {
+            return Array.from(new Set([...prev, data.sender]));
+          } else {
+            return prev.filter(u => u !== data.sender);
+          }
+        });
+      }
+    };
+    socket.on('typing', handleTyping);
     return () => {
       socket.off('users_list');
+      socket.off('typing', handleTyping);
     };
   }, [currentUser]);
 
@@ -39,6 +54,11 @@ const UsersList: React.FC<UsersListProps> = ({ currentUser, onSelect }) => {
               >
                 {user}
               </button>
+              {typingUsers.includes(user) && (
+                <span style={{ color: '#007bff', marginLeft: '1rem', fontSize: '0.9em' }}>
+                  typing...
+                </span>
+              )}
             </li>
           ))}
         </ul>

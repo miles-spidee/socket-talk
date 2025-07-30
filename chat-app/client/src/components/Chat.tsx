@@ -30,18 +30,20 @@ const Chat: React.FC<ChatProps> = ({ username, chatUser, goBack }) => {
   }, [username]);
   const [message, setMessage] = useState<string>('');
   const [chat, setChat] = useState<Message[]>([]);
+  const [isTyping, setIsTyping] = useState<boolean>(false);
 
   // Send message to server
   const sendMessage = () => {
     if (message.trim()) {
       socket.emit('send_message', { message, sender: username, recipient: chatUser });
       setMessage('');
+      socket.emit('typing', { sender: username, recipient: chatUser, typing: false });
     }
   }
 
-  // Receive messages from server
+  // Receive messages and typing indicators from server
   useEffect(() => {
-    socket.on('receive_message', (data: { message: string; sender: string; recipient: string }) => {
+    const handleReceiveMessage = (data: { message: string; sender: string; recipient: string }) => {
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       // Only show messages relevant to this chat
       if (
@@ -58,9 +60,18 @@ const Chat: React.FC<ChatProps> = ({ username, chatUser, goBack }) => {
           },
         ]);
       }
-    });
+    };
+    const handleTyping = (data: { sender: string; recipient: string; typing: boolean }) => {
+      // Only show typing indicator if chat partner is typing to you
+      if (data.sender === chatUser && data.recipient === username) {
+        setIsTyping(data.typing);
+      }
+    };
+    socket.on('receive_message', handleReceiveMessage);
+    socket.on('typing', handleTyping);
     return () => {
-      socket.off('receive_message'); // Cleanup listener on unmount
+      socket.off('receive_message', handleReceiveMessage);
+      socket.off('typing', handleTyping);
     };
   }, [username, chatUser]);
 
@@ -123,7 +134,10 @@ const Chat: React.FC<ChatProps> = ({ username, chatUser, goBack }) => {
           type="text"
           placeholder="Type a message..."
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => {
+            setMessage(e.target.value);
+            socket.emit('typing', { sender: username, recipient: chatUser, typing: !!e.target.value });
+          }}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
           style={{
             flex: 1,
@@ -147,6 +161,11 @@ const Chat: React.FC<ChatProps> = ({ username, chatUser, goBack }) => {
           Send
         </button>
       </div>
+      {isTyping && (
+        <div style={{ color: '#007bff', marginTop: '0.5rem', fontSize: '0.9em' }}>
+          {chatUser} is typing...
+        </div>
+      )}
     </div>
   );
 };
