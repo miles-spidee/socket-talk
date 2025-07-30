@@ -1,10 +1,17 @@
-import React from 'react';
-import Chat from './components/Chat.tsx';
+import React, { useState } from 'react';
+import Join from './components/Join';
+import Chat from './components/Chat';
 
 const App: React.FC = () => {
+  const [username, setUsername] = useState<string>('');
+
   return (
     <div>
-      <Chat />
+      {username ? (
+        <Chat username={username} />
+      ) : (
+        <Join onJoin={(name) => setUsername(name)} />
+      )}
     </div>
   );
 };
