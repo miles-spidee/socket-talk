@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
 interface Message {
@@ -42,6 +42,19 @@ const Chat: React.FC<ChatProps> = ({
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [recentChats, setRecentChats] = useState<string[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input on "/" key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (chatUser && e.key === "/") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [chatUser]);
 
   // Register username with server on mount
   useEffect(() => {
@@ -369,6 +382,21 @@ const Chat: React.FC<ChatProps> = ({
             zIndex: 10,
           }}
         >
+          {/* Typing indicator above input */}
+          {isTyping && chatUser && (
+            <div
+              style={{
+                color: "#007bff",
+                marginBottom: "0.5rem",
+                fontSize: "0.9em",
+                maxWidth: "1000px",
+                marginLeft: "auto",
+                marginRight: "auto",
+              }}
+            >
+              {chatUser} is typing...
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -378,6 +406,7 @@ const Chat: React.FC<ChatProps> = ({
             }}
           >
             <input
+              ref={inputRef}
               type="text"
               placeholder="Type a message..."
               value={message}
@@ -417,20 +446,6 @@ const Chat: React.FC<ChatProps> = ({
               Send
             </button>
           </div>
-          {isTyping && chatUser && (
-            <div
-              style={{
-                color: "#007bff",
-                marginTop: "0.5rem",
-                fontSize: "0.9em",
-                maxWidth: "1000px",
-                marginLeft: "auto",
-                marginRight: "auto",
-              }}
-            >
-              {chatUser} is typing...
-            </div>
-          )}
         </div>
       </div>
     </div>
