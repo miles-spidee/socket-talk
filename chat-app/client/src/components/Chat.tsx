@@ -191,22 +191,17 @@ const Chat: React.FC<ChatProps> = ({
         {/* Title */}
         <div
           style={{
-            fontWeight: 900,
-            fontSize: "2.3em",
-            color: "#111",
-            marginBottom: "0.5rem",
-            letterSpacing: "2px",
-            fontFamily: "Segoe UI, Arial, sans-serif",
+            fontSize: "1.4em",
+            color: "#222",
+            fontFamily: "Inter, Segoe UI, sans-serif",
+            margin: "1rem 0",
+            fontWeight: 600,
             textTransform: "uppercase",
-            textAlign: "center",
-            background: "linear-gradient(90deg, #007bff 0%, #111 100%)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            marginTop: "0.5rem",
           }}
         >
-          SOCKET CHAT
+          Socket Chat
         </div>
+
         <h3 style={{ marginBottom: "1rem", color: "#007bff" }}>Chats</h3>
         <div style={{ flex: 1, overflowY: "auto", marginBottom: "70px" }}>
           {sidebarUsers.length === 0 && (
