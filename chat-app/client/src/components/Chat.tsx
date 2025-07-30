@@ -9,7 +9,11 @@ interface Message {
 // Connect to backend server
 const socket = io('http://localhost:5000');
 
-const Chat: React.FC = () => {
+interface ChatProps {
+  username: string;
+}
+
+const Chat: React.FC<ChatProps> = ({ username }) => {
   const [message, setMessage] = useState<string>('');
   const [chat, setChat] = useState<Message[]>([]);
 
@@ -35,7 +39,7 @@ const Chat: React.FC = () => {
 
   return (
     <div style={{ padding: '2rem', fontFamily: 'Arial' }}>
-      <h2>💬 Real-Time Chat</h2>
+      <h2>💬 Real-Time Chat - {username}</h2>
 
       <div
         style={{
