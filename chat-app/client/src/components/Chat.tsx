@@ -1,7 +1,3 @@
-function getChatPartner(myName: string, chat: Message[]): string {
-  const other = chat.find(m => !m.self && m.sender && m.sender !== myName);
-  return other && other.sender ? other.sender : 'Unknown';
-}
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 
@@ -12,40 +8,52 @@ interface Message {
   sender: string;
 }
 
-// Connect to backend server
-const socket = io('http://localhost:5000');
-
 interface ChatProps {
   username: string;
   chatUser: string;
   goBack: () => void;
+  onSelectUser: (user: string) => void;
 }
 
-const Chat: React.FC<ChatProps> = ({ username, chatUser, goBack }) => {
+const socket = io('http://localhost:5000');
+
+const Chat: React.FC<ChatProps> = ({ username, chatUser, goBack, onSelectUser }) => {
+  const [message, setMessage] = useState<string>('');
+  const [chat, setChat] = useState<Message[]>([]);
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [recentChats, setRecentChats] = useState<string[]>([]);
+
   // Register username with server on mount
   useEffect(() => {
     if (username) {
       socket.emit('join', username);
     }
-  }, [username]);
-  const [message, setMessage] = useState<string>('');
-  const [chat, setChat] = useState<Message[]>([]);
-  const [isTyping, setIsTyping] = useState<boolean>(false);
-
-  // Send message to server
-  const sendMessage = () => {
-    if (message.trim()) {
-      socket.emit('send_message', { message, sender: username, recipient: chatUser });
-      setMessage('');
-      socket.emit('typing', { sender: username, recipient: chatUser, typing: false });
+    // Request chat history when chatUser changes
+    if (username && chatUser) {
+      socket.emit('get_history', { user1: username, user2: chatUser });
+      setRecentChats((prev) =>
+        chatUser && !prev.includes(chatUser) ? [...prev, chatUser] : prev
+      );
     }
-  }
+  }, [username, chatUser]);
 
-  // Receive messages and typing indicators from server
+  // Listen for online users list
+  useEffect(() => {
+    const handleOnlineUsers = (users: string[]) => {
+      setOnlineUsers(users.filter(u => u !== username));
+    };
+    socket.on('online_users', handleOnlineUsers);
+    socket.emit('get_online_users');
+    return () => {
+      socket.off('online_users', handleOnlineUsers);
+    };
+  }, [username]);
+
+  // Receive messages, chat history, and typing indicators from server
   useEffect(() => {
     const handleReceiveMessage = (data: { message: string; sender: string; recipient: string }) => {
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      // Only show messages relevant to this chat
       if (
         (data.sender === username && data.recipient === chatUser) ||
         (data.sender === chatUser && data.recipient === username)
@@ -59,113 +67,216 @@ const Chat: React.FC<ChatProps> = ({ username, chatUser, goBack }) => {
             sender: data.sender,
           },
         ]);
+        setRecentChats((prev) =>
+          data.sender !== username && !prev.includes(data.sender)
+            ? [...prev, data.sender]
+            : prev
+        );
       }
     };
+    const handleChatHistory = (history: any[]) => {
+      const mapped = history.map((msg) => ({
+        message: msg.message,
+        self: msg.sender === username,
+        time: new Date(msg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sender: msg.sender,
+      }));
+      setChat(mapped);
+    };
     const handleTyping = (data: { sender: string; recipient: string; typing: boolean }) => {
-      // Only show typing indicator if chat partner is typing to you
       if (data.sender === chatUser && data.recipient === username) {
         setIsTyping(data.typing);
       }
     };
     socket.on('receive_message', handleReceiveMessage);
+    socket.on('chat_history', handleChatHistory);
     socket.on('typing', handleTyping);
     return () => {
       socket.off('receive_message', handleReceiveMessage);
+      socket.off('chat_history', handleChatHistory);
       socket.off('typing', handleTyping);
     };
   }, [username, chatUser]);
 
-  return (
-    <div style={{ padding: '2rem', fontFamily: 'Arial' }}>
-      <button
-        onClick={goBack}
-        style={{
-          marginBottom: '1rem',
-          padding: '0.3rem 1rem',
-          borderRadius: '20px',
-          backgroundColor: '#eee',
-          color: '#007bff',
-          border: 'none',
-          cursor: 'pointer',
-          fontWeight: 'bold',
-        }}
-      >
-        ← Back
-      </button>
-      <h2>Chatting with <span style={{ color: '#007bff' }}>{chatUser}</span></h2>
+  const sendMessage = () => {
+    if (message.trim()) {
+      socket.emit('send_message', { message, sender: username, recipient: chatUser });
+      setMessage('');
+      socket.emit('typing', { sender: username, recipient: chatUser, typing: false });
+      setRecentChats((prev) =>
+        chatUser && !prev.includes(chatUser) ? [...prev, chatUser] : prev
+      );
+    }
+  };
 
+  // Sidebar users: union of online users and recent chats (excluding self)
+  const sidebarUsers = Array.from(
+    new Set([...onlineUsers, ...recentChats.filter(u => u !== username)])
+  );
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', fontFamily: 'Arial' }}>
+      {/* Sidebar: Online & Recent Users */}
       <div
         style={{
-          margin: '1rem 0',
-          height: '300px',
-          overflowY: 'auto',
-          border: '1px solid #ccc',
-          borderRadius: '8px',
-          padding: '1rem',
-          background: '#f9f9f9',
+          width: '250px',
+          borderRight: '1px solid #ccc',
+          background: '#f5f5f5',
+          padding: '1rem 0.5rem',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        {chat.map((c, i) => (
-          <div key={i} style={{ textAlign: c.self ? 'right' : 'left', margin: '0.5rem 0' }}>
-            <div style={{ fontSize: '0.75em', color: '#888', marginBottom: '2px' }}>
-              {c.sender}
-            </div>
-            <span
+        <h3 style={{ marginBottom: '1rem', color: '#007bff' }}>Chats</h3>
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {sidebarUsers.length === 0 && (
+            <div style={{ color: '#888', fontSize: '0.95em' }}>No chats yet</div>
+          )}
+          {sidebarUsers.map((user) => (
+            <div
+              key={user}
               style={{
-                background: c.self ? '#d1ffd6' : '#e0e0e0',
-                padding: '0.5rem 1rem',
-                borderRadius: '20px',
-                display: 'inline-block',
-                maxWidth: '70%',
-                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0.5rem 0.5rem',
+                cursor: 'pointer',
+                background: user === chatUser ? '#e6f7ff' : 'transparent',
+                borderRadius: '8px',
+                marginBottom: '4px',
               }}
+              onClick={() => onSelectUser(user)}
             >
-              {c.message}
-              <span style={{ fontSize: '0.65em', color: '#888', marginLeft: '8px' }}>
-                {c.time}
+              {/* Show green dot only if online */}
+              <span style={{ fontSize: '1.2em', marginRight: '8px' }}>
+                {onlineUsers.includes(user) ? (
+                  <span style={{ color: '#28a745' }}>🔵</span>
+                ) : (
+                  <span style={{ color: '#888' }}>⚪</span>
+                )}
               </span>
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <input
-          type="text"
-          placeholder="Type a message..."
-          value={message}
-          onChange={(e) => {
-            setMessage(e.target.value);
-            socket.emit('typing', { sender: username, recipient: chatUser, typing: !!e.target.value });
-          }}
-          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          style={{
-            flex: 1,
-            padding: '0.5rem 1rem',
-            borderRadius: '20px',
-            border: '1px solid #ccc',
-            outline: 'none',
-          }}
-        />
+              <span style={{ fontWeight: user === chatUser ? 'bold' : 'normal', color: '#333' }}>
+                {user}
+              </span>
+            </div>
+          ))}
+        </div>
         <button
-          onClick={sendMessage}
+          onClick={goBack}
           style={{
-            padding: '0.5rem 1rem',
+            marginTop: '1rem',
+            padding: '0.3rem 1rem',
             borderRadius: '20px',
-            backgroundColor: '#007bff',
-            color: 'white',
+            backgroundColor: '#eee',
+            color: '#007bff',
             border: 'none',
             cursor: 'pointer',
+            fontWeight: 'bold',
           }}
         >
-          Send
+          ← Back
         </button>
       </div>
-      {isTyping && (
-        <div style={{ color: '#007bff', marginTop: '0.5rem', fontSize: '0.9em' }}>
-          {chatUser} is typing...
+
+      {/* Chat Interface */}
+      <div style={{ flex: 1, padding: '2rem' }}>
+        <h2>
+          {chatUser ? (
+            <>
+              Chatting with{' '}
+              <span style={{ color: '#007bff' }}>{chatUser}</span>
+              {!onlineUsers.includes(chatUser) && (
+                <span style={{ color: '#888', fontSize: '0.9em', marginLeft: '8px' }}>
+                  (offline)
+                </span>
+              )}
+            </>
+          ) : (
+            <span style={{ color: '#888' }}>Select a chat to start chatting</span>
+          )}
+        </h2>
+        <div
+          style={{
+            margin: '1rem 0',
+            height: '300px',
+            overflowY: 'auto',
+            border: '1px solid #ccc',
+            borderRadius: '8px',
+            padding: '1rem',
+            background: '#f9f9f9',
+          }}
+        >
+          {chatUser ? (
+            chat.map((c, i) => (
+              <div key={i} style={{ textAlign: c.self ? 'right' : 'left', margin: '0.5rem 0' }}>
+                <div style={{ fontSize: '0.75em', color: '#888', marginBottom: '2px' }}>
+                  {c.sender}
+                </div>
+                <span
+                  style={{
+                    background: c.self ? '#d1ffd6' : '#e0e0e0',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '20px',
+                    display: 'inline-block',
+                    maxWidth: '70%',
+                    position: 'relative',
+                  }}
+                >
+                  {c.message}
+                  <span style={{ fontSize: '0.65em', color: '#888', marginLeft: '8px' }}>
+                    {c.time}
+                  </span>
+                </span>
+              </div>
+            ))
+          ) : (
+            <div style={{ color: '#888', textAlign: 'center', marginTop: '100px' }}>
+              Select a chat to start chatting.
+            </div>
+          )}
         </div>
-      )}
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <input
+            type="text"
+            placeholder="Type a message..."
+            value={message}
+            disabled={!chatUser}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              if (chatUser) {
+                socket.emit('typing', { sender: username, recipient: chatUser, typing: !!e.target.value });
+              }
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            style={{
+              flex: 1,
+              padding: '0.5rem 1rem',
+              borderRadius: '20px',
+              border: '1px solid #ccc',
+              outline: 'none',
+              background: chatUser ? 'white' : '#eee',
+            }}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={!chatUser}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '20px',
+              backgroundColor: chatUser ? '#007bff' : '#aaa',
+              color: 'white',
+              border: 'none',
+              cursor: chatUser ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Send
+          </button>
+        </div>
+        {isTyping && chatUser && (
+          <div style={{ color: '#007bff', marginTop: '0.5rem', fontSize: '0.9em' }}>
+            {chatUser} is typing...
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -2,9 +2,23 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+const Message = require('./models/Message');
 
 const app = express();
 const server = http.createServer(app);
+
+// Connect to MongoDB
+mongoose.connect('mongodb://localhost:27017/sockettalk', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+mongoose.connection.on('connected', () => {
+  console.log('MongoDB connected');
+});
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err);
+});
 
 // Allow CORS (React will run on different port)
 app.use(cors());
@@ -19,8 +33,11 @@ const io = new Server(server, {
 });
 
 // Track users
-// Map username to socket.id
+// Map socket.id to username
 let users = {};
+
+// For sidebar: track online users (set of usernames)
+const onlineUsers = new Set();
 
 io.on('connection', (socket) => {
   // Typing indicator
@@ -44,15 +61,31 @@ io.on('connection', (socket) => {
       }
     });
     users[socket.id] = username;
-    io.emit('users_list', Array.from(new Set(Object.values(users))));
+    onlineUsers.add(username);
+    io.emit('online_users', Array.from(onlineUsers));
   });
 
-  // Respond to get_users event
+  // Respond to get_online_users event
+  socket.on('get_online_users', () => {
+    socket.emit('online_users', Array.from(onlineUsers));
+  });
+
+  // Legacy users list for UsersList component
   socket.on('get_users', () => {
     socket.emit('users_list', Array.from(new Set(Object.values(users))));
   });
 
-  socket.on('send_message', (data) => {
+  socket.on('send_message', async (data) => {
+    // Save message to MongoDB
+    try {
+      await Message.create({
+        message: data.message,
+        sender: data.sender,
+        recipient: data.recipient
+      });
+    } catch (err) {
+      console.error('Error saving message:', err);
+    }
     // Always send to both sender and recipient for private messages
     if (data.recipient) {
       // Find recipient socket id
@@ -76,8 +109,28 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Chat history event
+  socket.on('get_history', async ({ user1, user2 }) => {
+    try {
+      const history = await Message.find({
+        $or: [
+          { sender: user1, recipient: user2 },
+          { sender: user2, recipient: user1 }
+        ]
+      }).sort({ time: 1 });
+      socket.emit('chat_history', history);
+    } catch (err) {
+      socket.emit('chat_history', []);
+    }
+  });
+
   socket.on('disconnect', () => {
+    const username = users[socket.id];
     delete users[socket.id];
+    if (username) {
+      onlineUsers.delete(username);
+      io.emit('online_users', Array.from(onlineUsers));
+    }
     io.emit('users_list', Array.from(new Set(Object.values(users))));
     console.log(`🔌 User disconnected: ${socket.id}`);
   });
