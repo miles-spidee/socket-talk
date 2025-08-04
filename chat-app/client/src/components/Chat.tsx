@@ -10,7 +10,7 @@ const SettingsIcon = ({ onClick }: { onClick: () => void }) => (
     viewBox="0 0 24 24"
     style={{ cursor: "pointer", marginLeft: "8px", fill: "#888" }}
   >
-    <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7zm7.43-2.27l1.77-1.02a.5.5 0 0 0 .18-.68l-1.68-2.91a.5.5 0 0 0-.61-.22l-2.08.8a7.03 7.03 0 0 0-1.51-.88l-.32-2.19a.5.5 0 0 0-.5-.42h-3.36a.5.5 0 0 0-.5.42l-.32 2.19c-.54.22-1.05.51-1.51.88l-2.08-.8a.5.5 0 0 0-.61.22l-1.68 2.91a.5.5 0 0 0 .18.68l1.77 1.02c-.04.32-.07.65-.07.98s.03.66.07.98l-1.77 1.02a.5.5 0 0 0-.18.68l1.68 2.91a.5.5 0 0 0 .61.22l2.08-.8c.46.37.97.66 1.51.88l.32 2.19a.5.5 0 0 0 .5.42h3.36a.5.5 0 0 0 .5-.42l.32-2.19c.54-.22 1.05-.51 1.51-.88l2.08.8a.5.5 0 0 0 .61-.22l1.68-2.91a.5.5 0 0 0-.18-.68l-1.77-1.02c.04-.32.07-.65.07-.98s-.03-.66-.07-.98z"/>
+    <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7zm7.43-2.27l1.77-1.02a.5.5 0 0 0 .18-.68l-1.68-2.91a.5.5 0 0 0-.61-.22l-2.08.8a7.03 7.03 0 0 0-1.51-.88l-.32-2.19a.5.5 0 0 0-.5-.42h-3.36a.5.5 0 0 0-.5.42l-.32 2.19c-.54.22-1.05.51-1.51.88l-2.08-.8a.5.5 0 0 0-.61.22l-1.68 2.91a.5.5 0 0 0 .18.68l1.77 1.02c-.04.32-.07.65-.07.98s.03.66.07.98l-1.77 1.02a.5.5 0 0 0-.18.68l1.68 2.91a.5.5 0 0 0 .61.22l2.08-.8c.46.37.97.66 1.51.88l.32 2.19a.5.5 0 0 0 .5.42h3.36a.5.5 0 0 0 .5-.42l.32-2.19c.54-.22 1.05-.51 1.51-.88l2.08.8a.5.5 0 0 0 .61-.22l1.68-2.91a.5.5 0 0 0-.18-.68l-1.77-1.02c.04-.32.07-.65.07-.98s-.03-.66-.07-.98z" />
   </svg>
 );
 
@@ -245,11 +245,12 @@ const Chat: React.FC<ChatProps> = ({
                 alignItems: "center",
                 padding: "0.5rem 0.5rem",
                 cursor: "pointer",
-                background: user === chatUser
-                  ? darkMode
-                    ? "#222a"
-                    : "#e6f7ff"
-                  : "transparent",
+                background:
+                  user === chatUser
+                    ? darkMode
+                      ? "#222a"
+                      : "#e6f7ff"
+                    : "transparent",
                 borderRadius: "8px",
                 marginBottom: "4px",
               }}
@@ -501,7 +502,7 @@ const Chat: React.FC<ChatProps> = ({
           </div>
         </div>
         {/* Settings Panel */}
-        {settingsOpen && (
+        {settingsOpen && setDarkMode && (
           <div
             style={{
               position: "fixed",
@@ -535,25 +536,73 @@ const Chat: React.FC<ChatProps> = ({
               onClick={(e) => e.stopPropagation()}
             >
               <h2 style={{ marginBottom: "2rem" }}>Settings</h2>
-              {setDarkMode && (
-                <button
-                  onClick={() => setDarkMode(!darkMode)}
+              {/* Theme Switcher Slider */}
+              <div
+                style={{
+                  marginBottom: "2rem",
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.5rem 0",
+                  background: darkMode ? "#181818" : "#f5f5f5",
+                  borderRadius: "8px",
+                }}
+              >
+                <span style={{ fontWeight: 500, fontSize: "1.1em" }}>
+                  Dark mode
+                </span>
+                <label
                   style={{
-                    padding: "0.7rem 2rem",
-                    borderRadius: "12px",
-                    border: "none",
-                    background: darkMode ? "#007bff" : "#222",
-                    color: "#fff",
-                    fontWeight: "bold",
-                    fontSize: "1.1em",
+                    display: "flex",
+                    alignItems: "center",
                     cursor: "pointer",
-                    marginBottom: "1rem",
-                    transition: "background 0.2s",
+                    minWidth: "80px",
                   }}
                 >
-                  {darkMode ? "Disable Dark Mode" : "Enable Dark Mode"}
-                </button>
-              )}
+                  <input
+                    type="checkbox"
+                    checked={darkMode}
+                    onChange={() => setDarkMode(!darkMode)}
+                    style={{ display: "none" }}
+                  />
+                  <span
+                    style={{
+                      width: "44px",
+                      height: "24px",
+                      background: darkMode ? "#007bff" : "#ccc",
+                      borderRadius: "12px",
+                      position: "relative",
+                      transition: "background 0.2s",
+                      marginRight: "8px",
+                      display: "inline-block",
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: "2px",
+                        left: darkMode ? "22px" : "2px",
+                        width: "20px",
+                        height: "20px",
+                        background: "#fff",
+                        borderRadius: "50%",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.12)",
+                        transition: "left 0.2s",
+                        border: "1px solid #ccc",
+                      }}
+                    />
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 500,
+                      color: darkMode ? "#007bff" : "#888",
+                    }}
+                  >
+                    {darkMode ? "On" : "Off"}
+                  </span>
+                </label>
+              </div>
               <button
                 onClick={() => setSettingsOpen(false)}
                 style={{
@@ -573,6 +622,7 @@ const Chat: React.FC<ChatProps> = ({
             </div>
           </div>
         )}
+        ;
       </div>
     </div>
   );
