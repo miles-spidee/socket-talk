@@ -1,21 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
-interface Message {
-  message: string;
-  self: boolean;
-  time: string;
-  sender: string;
-}
-
-interface ChatProps {
-  username: string;
-  chatUser: string;
-  goBack: () => void;
-  onSelectUser: (user: string) => void;
-}
-
-const socket = io("http://localhost:5000");
+// Settings icon SVG
+const SettingsIcon = ({ onClick }: { onClick: () => void }) => (
+  <svg
+    onClick={onClick}
+    width="28"
+    height="28"
+    viewBox="0 0 24 24"
+    style={{ cursor: "pointer", marginLeft: "8px", fill: "#888" }}
+  >
+    <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7zm7.43-2.27l1.77-1.02a.5.5 0 0 0 .18-.68l-1.68-2.91a.5.5 0 0 0-.61-.22l-2.08.8a7.03 7.03 0 0 0-1.51-.88l-.32-2.19a.5.5 0 0 0-.5-.42h-3.36a.5.5 0 0 0-.5.42l-.32 2.19c-.54.22-1.05.51-1.51.88l-2.08-.8a.5.5 0 0 0-.61.22l-1.68 2.91a.5.5 0 0 0 .18.68l1.77 1.02c-.04.32-.07.65-.07.98s.03.66.07.98l-1.77 1.02a.5.5 0 0 0-.18.68l1.68 2.91a.5.5 0 0 0 .61.22l2.08-.8c.46.37.97.66 1.51.88l.32 2.19a.5.5 0 0 0 .5.42h3.36a.5.5 0 0 0 .5-.42l.32-2.19c.54-.22 1.05-.51 1.51-.88l2.08.8a.5.5 0 0 0 .61-.22l1.68-2.91a.5.5 0 0 0-.18-.68l-1.77-1.02c.04-.32.07-.65.07-.98s-.03-.66-.07-.98z"/>
+  </svg>
+);
 
 // Default user icon SVG
 const DefaultUserIcon = () => (
@@ -31,17 +28,38 @@ const DefaultUserIcon = () => (
   </svg>
 );
 
+interface Message {
+  message: string;
+  self: boolean;
+  time: string;
+  sender: string;
+}
+
+interface ChatProps {
+  username: string;
+  chatUser: string;
+  goBack: () => void;
+  onSelectUser: (user: string) => void;
+  darkMode?: boolean;
+  setDarkMode?: (v: boolean) => void;
+}
+
+const socket = io("http://localhost:5000");
+
 const Chat: React.FC<ChatProps> = ({
   username,
   chatUser,
   goBack,
   onSelectUser,
+  darkMode = false,
+  setDarkMode,
 }) => {
   const [message, setMessage] = useState<string>("");
   const [chat, setChat] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [recentChats, setRecentChats] = useState<string[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input on "/" key
@@ -169,13 +187,22 @@ const Chat: React.FC<ChatProps> = ({
   );
 
   return (
-    <div style={{ display: "flex", height: "100vh", fontFamily: "Arial" }}>
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        fontFamily: "Arial",
+        background: darkMode ? "#181818" : "#fff",
+        color: darkMode ? "#eee" : "#222",
+        transition: "background 0.2s, color 0.2s",
+      }}
+    >
       {/* Sidebar: Fixed position */}
       <div
         style={{
           width: "250px",
-          borderRight: "1px solid #ccc",
-          background: "#f5f5f5",
+          borderRight: darkMode ? "1px solid #333" : "1px solid #ccc",
+          background: darkMode ? "#222" : "#f5f5f5",
           padding: "1rem 0.5rem",
           display: "flex",
           flexDirection: "column",
@@ -186,13 +213,14 @@ const Chat: React.FC<ChatProps> = ({
           minHeight: "100vh",
           zIndex: 20,
           boxSizing: "border-box",
+          transition: "background 0.2s, border 0.2s",
         }}
       >
         {/* Title */}
         <div
           style={{
             fontSize: "1.4em",
-            color: "#222",
+            color: darkMode ? "#eee" : "#222",
             fontFamily: "Inter, Segoe UI, sans-serif",
             margin: "1rem 0",
             fontWeight: 600,
@@ -217,7 +245,11 @@ const Chat: React.FC<ChatProps> = ({
                 alignItems: "center",
                 padding: "0.5rem 0.5rem",
                 cursor: "pointer",
-                background: user === chatUser ? "#e6f7ff" : "transparent",
+                background: user === chatUser
+                  ? darkMode
+                    ? "#222a"
+                    : "#e6f7ff"
+                  : "transparent",
                 borderRadius: "8px",
                 marginBottom: "4px",
               }}
@@ -234,7 +266,7 @@ const Chat: React.FC<ChatProps> = ({
               <span
                 style={{
                   fontWeight: user === chatUser ? "bold" : "normal",
-                  color: "#333",
+                  color: darkMode ? "#eee" : "#333",
                 }}
               >
                 {user}
@@ -250,8 +282,8 @@ const Chat: React.FC<ChatProps> = ({
             bottom: 0,
             width: "100%",
             padding: "1rem 0.5rem",
-            borderTop: "1px solid #ddd",
-            background: "#f5f5f5",
+            borderTop: darkMode ? "1px solid #333" : "1px solid #ddd",
+            background: darkMode ? "#222" : "#f5f5f5",
             display: "flex",
             alignItems: "center",
             gap: "0.8rem",
@@ -261,10 +293,15 @@ const Chat: React.FC<ChatProps> = ({
         >
           <DefaultUserIcon />
           <span
-            style={{ fontWeight: "bold", fontSize: "1.1em", color: "#222" }}
+            style={{
+              fontWeight: "bold",
+              fontSize: "1.1em",
+              color: darkMode ? "#eee" : "#222",
+            }}
           >
             {username}
           </span>
+          <SettingsIcon onClick={() => setSettingsOpen(true)} />
         </div>
       </div>
 
@@ -307,12 +344,13 @@ const Chat: React.FC<ChatProps> = ({
             flex: 1,
             margin: "1rem 0",
             overflowY: "auto",
-            border: "1px solid #ccc",
+            border: darkMode ? "1px solid #333" : "1px solid #ccc",
             borderRadius: "8px",
             padding: "1rem",
-            background: "#f9f9f9",
+            background: darkMode ? "#222" : "#f9f9f9",
             minHeight: 0,
             maxHeight: "calc(100vh - 180px)",
+            transition: "background 0.2s, border 0.2s",
           }}
         >
           {chatUser ? (
@@ -335,7 +373,13 @@ const Chat: React.FC<ChatProps> = ({
                 </div>
                 <span
                   style={{
-                    background: c.self ? "#d1ffd6" : "#e0e0e0",
+                    background: c.self
+                      ? darkMode
+                        ? "#2e4d2e"
+                        : "#d1ffd6"
+                      : darkMode
+                      ? "#333"
+                      : "#e0e0e0",
                     padding: "0.5rem 1rem",
                     borderRadius: "20px",
                     display: "inline-block",
@@ -371,10 +415,11 @@ const Chat: React.FC<ChatProps> = ({
             left: 250, // width of sidebar
             right: 0,
             bottom: 0,
-            background: "#fff",
+            background: darkMode ? "#181818" : "#fff",
             padding: "1rem 2rem",
-            borderTop: "1px solid #eee",
+            borderTop: darkMode ? "1px solid #333" : "1px solid #eee",
             zIndex: 10,
+            transition: "background 0.2s, border 0.2s",
           }}
         >
           {/* Typing indicator above input */}
@@ -421,9 +466,17 @@ const Chat: React.FC<ChatProps> = ({
                 flex: 1,
                 padding: "0.5rem 1rem",
                 borderRadius: "20px",
-                border: "1px solid #ccc",
+                border: darkMode ? "1px solid #333" : "1px solid #ccc",
                 outline: "none",
-                background: chatUser ? "white" : "#eee",
+                background: chatUser
+                  ? darkMode
+                    ? "#222"
+                    : "white"
+                  : darkMode
+                  ? "#333"
+                  : "#eee",
+                color: darkMode ? "#eee" : "#222",
+                transition: "background 0.2s, border 0.2s, color 0.2s",
               }}
             />
             <button
@@ -432,16 +485,94 @@ const Chat: React.FC<ChatProps> = ({
               style={{
                 padding: "0.5rem 1rem",
                 borderRadius: "20px",
-                backgroundColor: chatUser ? "#007bff" : "#aaa",
+                backgroundColor: chatUser
+                  ? "#007bff"
+                  : darkMode
+                  ? "#444"
+                  : "#aaa",
                 color: "white",
                 border: "none",
                 cursor: chatUser ? "pointer" : "not-allowed",
+                transition: "background 0.2s",
               }}
             >
               Send
             </button>
           </div>
         </div>
+        {/* Settings Panel */}
+        {settingsOpen && (
+          <div
+            style={{
+              position: "fixed",
+              left: 0,
+              top: 0,
+              width: "100vw",
+              height: "100vh",
+              zIndex: 100,
+              background: "rgba(0,0,0,0.2)",
+              backdropFilter: "blur(8px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onClick={() => setSettingsOpen(false)}
+          >
+            <div
+              style={{
+                background: darkMode ? "#222" : "#fff",
+                color: darkMode ? "#eee" : "#222",
+                padding: "2rem 2.5rem",
+                borderRadius: "18px",
+                boxShadow: "0 4px 32px rgba(0,0,0,0.15)",
+                minWidth: "320px",
+                minHeight: "180px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                position: "relative",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 style={{ marginBottom: "2rem" }}>Settings</h2>
+              {setDarkMode && (
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  style={{
+                    padding: "0.7rem 2rem",
+                    borderRadius: "12px",
+                    border: "none",
+                    background: darkMode ? "#007bff" : "#222",
+                    color: "#fff",
+                    fontWeight: "bold",
+                    fontSize: "1.1em",
+                    cursor: "pointer",
+                    marginBottom: "1rem",
+                    transition: "background 0.2s",
+                  }}
+                >
+                  {darkMode ? "Disable Dark Mode" : "Enable Dark Mode"}
+                </button>
+              )}
+              <button
+                onClick={() => setSettingsOpen(false)}
+                style={{
+                  padding: "0.5rem 1.5rem",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#888",
+                  color: "#fff",
+                  fontWeight: "bold",
+                  fontSize: "1em",
+                  cursor: "pointer",
+                  marginTop: "0.5rem",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
