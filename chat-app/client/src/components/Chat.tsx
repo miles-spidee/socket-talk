@@ -11,7 +11,7 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { db } from "../firebase.ts";
 
 interface ChatProps {
   username: string;
@@ -83,6 +83,9 @@ const Chat: React.FC<ChatProps> = ({
   setDarkMode,
   onLogout,
 }) => {
+  const SIDEBAR_OPEN_WIDTH = 260;
+  const SIDEBAR_COLLAPSED_WIDTH = 18;
+
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
@@ -90,6 +93,7 @@ const Chat: React.FC<ChatProps> = ({
   const [typingSender, setTypingSender] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string>("");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<number | null>(null);
   const typingClearTimerRef = useRef<number | null>(null);
@@ -308,6 +312,10 @@ const Chat: React.FC<ChatProps> = ({
 
   const isUserOnline = (user: string) => onlineUsers.includes(user);
   const isOtherUserTyping = Boolean(typingSender && activeChatUser);
+  const sidebarExpanded = sidebarOpen;
+  const sidebarWidth = sidebarExpanded
+    ? SIDEBAR_OPEN_WIDTH
+    : SIDEBAR_COLLAPSED_WIDTH;
 
   const sendMessage = async () => {
     const text = message.trim();
@@ -393,14 +401,17 @@ const Chat: React.FC<ChatProps> = ({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "260px 1fr",
+        gridTemplateColumns: `${sidebarWidth}px 1fr`,
         width: "100%",
         height: "100%",
         minWidth: 0,
         minHeight: 0,
         overflow: "hidden",
-        background: darkMode ? "#141414" : "#f5f7fb",
+        background: darkMode
+          ? "radial-gradient(circle at top left, rgba(59,130,246,0.08), transparent 28%), radial-gradient(circle at bottom right, rgba(16,185,129,0.06), transparent 24%), linear-gradient(135deg, #090d18 0%, #0d0f14 56%, #07080c 100%)"
+          : "radial-gradient(circle at top left, rgba(59,130,246,0.12), transparent 30%), radial-gradient(circle at bottom right, rgba(16,185,129,0.08), transparent 26%), linear-gradient(135deg, #eef4ff 0%, #f8fbff 52%, #edf1f7 100%)",
         color: darkMode ? "#f0f0f0" : "#20242b",
+        transition: "grid-template-columns 0.24s ease",
       }}
     >
       <style>{`
@@ -445,12 +456,55 @@ const Chat: React.FC<ChatProps> = ({
           gap: "0.75rem",
           minHeight: 0,
           minWidth: 0,
-          background: darkMode ? "#171717" : "#ffffff",
+          backgroundColor: darkMode
+            ? "rgba(10, 14, 24, 0.82)"
+            : "rgba(255, 255, 255, 0.72)",
+          backgroundImage: darkMode
+            ? "radial-gradient(rgba(255,255,255,0.07) 0.8px, transparent 0.8px), radial-gradient(rgba(255,255,255,0.05) 0.8px, transparent 0.8px)"
+            : "radial-gradient(rgba(0,0,0,0.1) 0.8px, transparent 0.8px), radial-gradient(rgba(0,0,0,0.07) 0.8px, transparent 0.8px)",
+          backgroundSize: "3px 3px, 4px 4px",
+          backgroundPosition: "0 0, 1px 1px",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+          overflow: "hidden",
+          position: "relative",
+          transition: "padding 0.24s ease",
+          paddingLeft: sidebarExpanded ? "1rem" : "0.2rem",
+          paddingRight: sidebarExpanded ? "1rem" : "0.2rem",
         }}
       >
-        <h2 style={{ margin: 0 }}>Socket Chat</h2>
-        <h3 style={{ marginBottom: "0.25rem" }}>Chats</h3>
         <button
+          onClick={() => {
+            setAccountMenuOpen(false);
+            setSidebarOpen((open) => !open);
+          }}
+          aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+          style={{
+            position: "absolute",
+            right: -13,
+            top: 16,
+            width: 26,
+            height: 26,
+            borderRadius: "50%",
+            border: darkMode ? "1px solid #3a3a3a" : "1px solid #d1d9e8",
+            cursor: "pointer",
+            background: darkMode ? "#202020" : "#fff",
+            color: darkMode ? "#f0f0f0" : "#20242b",
+            zIndex: 30,
+            display: "grid",
+            placeItems: "center",
+            boxShadow: "0 4px 10px rgba(0,0,0,0.12)",
+          }}
+        >
+          {sidebarExpanded ? "◀" : "▶"}
+        </button>
+
+        {sidebarExpanded && (
+          <>
+        <h2 className="bbh-bartle-regular" style={{ margin: 0 }}>Socket Chat</h2>
+        <h3 className="anonymous-pro-regular" style={{ marginBottom: "0.25rem" }}>Chats</h3>
+        <button
+          className="nunito"
           onClick={() => setActiveChatUser("")}
           style={{
             border: "none",
@@ -472,7 +526,7 @@ const Chat: React.FC<ChatProps> = ({
         </button>
         <div style={{ overflowY: "auto", minHeight: 0, minWidth: 0 }}>
           {chatContacts.length === 0 && (
-            <div style={{ opacity: 0.7, fontSize: "0.9rem" }}>
+            <div className="nunito" style={{ opacity: 0.7, fontSize: "0.9rem" }}>
               No direct chats yet
             </div>
           )}
@@ -481,6 +535,7 @@ const Chat: React.FC<ChatProps> = ({
 
             return (
               <button
+                className="nunito"
                 key={user}
                 onClick={() => setActiveChatUser(user)}
                 style={{
@@ -516,7 +571,7 @@ const Chat: React.FC<ChatProps> = ({
                     flex: "0 0 auto",
                   }}
                 />
-                <span>{user}</span>
+                <span className="nunito">{user}</span>
               </button>
             );
           })}
@@ -538,7 +593,7 @@ const Chat: React.FC<ChatProps> = ({
               gap: "0.5rem",
             }}
           >
-            <div style={{ fontSize: "0.9rem", opacity: 0.8, minWidth: 0 }}>
+            <div className="anonymous-pro-regular" style={{ fontSize: "0.9rem", opacity: 0.8, minWidth: 0 }}>
               Logged in as {username}
             </div>
             <button
@@ -581,6 +636,7 @@ const Chat: React.FC<ChatProps> = ({
             >
               {setDarkMode && (
                 <button
+                  className="anonymous-pro-regular"
                   onClick={() => {
                     setDarkMode(!darkMode);
                     setAccountMenuOpen(false);
@@ -600,6 +656,7 @@ const Chat: React.FC<ChatProps> = ({
               )}
               {onLogout && (
                 <button
+                  className="anonymous-pro-regular"
                   onClick={() => {
                     setAccountMenuOpen(false);
                     onLogout();
@@ -620,9 +677,31 @@ const Chat: React.FC<ChatProps> = ({
             </div>
           )}
         </div>
+
+          </>
+        )}
       </aside>
 
-      <main style={{ display: "grid", gridTemplateRows: "1fr auto", minHeight: 0 }}>
+      <main style={{ display: "grid", gridTemplateRows: "auto 1fr auto", minHeight: 0 }}>
+        <div
+          className="anonymous-pro-regular"
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 10,
+            padding: "0.85rem 1rem",
+            fontSize: "0.9rem",
+            opacity: 0.9,
+            borderBottom: darkMode ? "1px solid #2a2a2a" : "1px solid #d8deea",
+            background: darkMode
+              ? "rgba(8, 12, 20, 0.86)"
+              : "rgba(248, 251, 255, 0.8)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+          }}
+        >
+          {activeChatUser ? `Chatting with ${activeChatUser}` : "Global room messages"}
+        </div>
         <div
           ref={listRef}
           style={{
@@ -634,14 +713,14 @@ const Chat: React.FC<ChatProps> = ({
             gap: "0.65rem",
             minHeight: 0,
             minWidth: 0,
-            background: darkMode ? "#141414" : "#f5f7fb",
+            background: darkMode
+              ? "rgba(6, 8, 14, 0.72)"
+              : "rgba(247, 250, 255, 0.62)",
           }}
         >
-          <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
-            {activeChatUser ? `Chatting with ${activeChatUser}` : "Global room messages"}
-          </div>
           {activeChatUser && isOtherUserTyping && (
             <div
+              className="nunito"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -682,32 +761,35 @@ const Chat: React.FC<ChatProps> = ({
           {visibleMessages.map((m) => (
             <div
               key={m.id}
+              className="nunito"
               style={{
                 alignSelf: m.senderName === username ? "flex-end" : "flex-start",
                 maxWidth: "70%",
               }}
             >
-              <div style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: 4 }}>
+              <div className="nunito" style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: 4 }}>
                 {m.senderName}
               </div>
               <div
+                className="nunito"
                 style={{
                   borderRadius: 12,
                   padding: "0.6rem 0.8rem",
                   background:
                     m.senderName === username
                       ? darkMode
-                        ? "#123047"
+                          ? "#0f2a3f"
                         : "#d6e9ff"
                       : darkMode
-                      ? "#1f1f1f"
+                        ? "#151821"
                       : "#ffffff",
-                  border: darkMode ? "1px solid #2f2f2f" : "1px solid #dde3ef",
+                    border: darkMode ? "1px solid #252935" : "1px solid #dde3ef",
                 }}
               >
                 {m.text}
               </div>
               <div
+                className="nunito"
                 style={{
                   fontSize: "0.7rem",
                   opacity: 0.65,
@@ -728,10 +810,15 @@ const Chat: React.FC<ChatProps> = ({
             display: "flex",
             gap: "0.5rem",
             minWidth: 0,
-            background: darkMode ? "#171717" : "#ffffff",
+            background: darkMode
+              ? "rgba(8, 12, 20, 0.88)"
+              : "rgba(255, 255, 255, 0.82)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
           }}
         >
           <input
+            className="nunito"
             type="text"
             value={message}
             onChange={(e) => handleMessageChange(e.target.value)}
@@ -755,13 +842,14 @@ const Chat: React.FC<ChatProps> = ({
             style={{
               flex: 1,
               borderRadius: 8,
-              border: darkMode ? "1px solid #333" : "1px solid #ced7e7",
+              border: darkMode ? "1px solid #242936" : "1px solid #ced7e7",
               padding: "0.6rem 0.75rem",
-              background: darkMode ? "#101010" : "#f8fbff",
+              background: darkMode ? "#0b0e15" : "#f8fbff",
               color: darkMode ? "#f0f0f0" : "#20242b",
             }}
           />
           <button
+            className="nunito"
             onClick={sendMessage}
             style={{
               border: "none",
@@ -777,6 +865,7 @@ const Chat: React.FC<ChatProps> = ({
         </div>
         {sendError && (
           <div
+            className="nunito"
             style={{
               padding: "0 0.9rem 0.8rem 0.9rem",
               color: "#d7263d",
