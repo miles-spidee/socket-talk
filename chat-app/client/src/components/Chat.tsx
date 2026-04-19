@@ -1,44 +1,71 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import io from "socket.io-client";
-
-const SettingsIcon = ({ onClick }: { onClick: () => void }) => (
-  <svg
-    onClick={onClick}
-    width="28"
-    height="28"
-    viewBox="0 0 24 24"
-    style={{ cursor: "pointer", marginLeft: "8px", fill: "#888" }}
-  >
-    <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7zm7.43-2.27l1.77-1.02a.5.5 0 0 0 .18-.68l-1.68-2.91a.5.5 0 0 0-.61-.22l-2.08.8a7.03 7.03 0 0 0-1.51-.88l-.32-2.19a.5.5 0 0 0-.5-.42h-3.36a.5.5 0 0 0-.5.42l-.32 2.19c-.54.22-1.05.51-1.51.88l-2.08-.8a.5.5 0 0 0-.61.22l-1.68 2.91a.5.5 0 0 0 .18.68l1.77 1.02c-.04.32-.07.65-.07.98s.03.66.07.98l-1.77 1.02a.5.5 0 0 0-.18.68l1.68 2.91a.5.5 0 0 0 .61.22l2.08-.8c.46.37.97.66 1.51.88l.32 2.19a.5.5 0 0 0 .5.42h3.36a.5.5 0 0 0 .5-.42l.32-2.19c.54-.22 1.05-.51 1.51-.88l2.08.8a.5.5 0 0 0 .61-.22l1.68-2.91a.5.5 0 0 0-.18-.68l-1.77-1.02c.04-.32.07-.65.07-.98s-.03-.66-.07-.98z" />
-  </svg>
-);
-const DefaultUserIcon = () => (
-  <svg
-    width="40"
-    height="40"
-    viewBox="0 0 40 40"
-    style={{ borderRadius: "50%" }}
-  >
-    <circle cx="20" cy="20" r="20" fill="#ddd" />
-    <circle cx="20" cy="16" r="8" fill="#bbb" />
-    <ellipse cx="20" cy="30" rx="12" ry="7" fill="#bbb" />
-  </svg>
-);
-
-interface Message {
-  message: string;
-  self: boolean;
-  time: string;
-  sender: string;
-}
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+import { db } from "../firebase";
 
 interface ChatProps {
   username: string;
-  chatUser: string;
-  onSelectUser: (user: string) => void;
   darkMode?: boolean;
   setDarkMode?: (v: boolean) => void;
+  onLogout?: () => void;
 }
+
+interface RoomMessage {
+  id: string;
+  senderName: string;
+  text: string;
+  recipientName?: string;
+  createdAt?: { seconds?: number; toDate?: () => Date };
+}
+
+const formatFirestoreError = (err: unknown, fallback: string) => {
+  if (
+    err &&
+    typeof err === "object" &&
+    "code" in err &&
+    typeof (err as { code?: unknown }).code === "string"
+  ) {
+    const code = (err as { code: string }).code;
+    const message =
+      "message" in err && typeof (err as { message?: unknown }).message === "string"
+        ? (err as { message: string }).message
+        : "";
+    return message ? `${fallback} (${code}): ${message}` : `${fallback} (${code})`;
+  }
+  return fallback;
+};
+
+const formatMessageTime = (createdAt?: { seconds?: number; toDate?: () => Date }) => {
+  if (!createdAt) {
+    return "";
+  }
+
+  if (typeof createdAt.toDate === "function") {
+    return createdAt.toDate().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  if (typeof createdAt.seconds === "number") {
+    return new Date(createdAt.seconds * 1000).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return "";
+};
 
 const isLocalHost =
   window.location.hostname === "localhost" ||
@@ -52,577 +79,714 @@ const socket = io(socketUrl);
 
 const Chat: React.FC<ChatProps> = ({
   username,
-  chatUser,
-  onSelectUser,
   darkMode = false,
   setDarkMode,
+  onLogout,
 }) => {
-  const [message, setMessage] = useState<string>("");
-  const [chat, setChat] = useState<Message[]>([]);
-  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
-  const [recentChats, setRecentChats] = useState<string[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [activeChatUser, setActiveChatUser] = useState<string>("");
+  const [typingSender, setTypingSender] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string>("");
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const typingTimerRef = useRef<number | null>(null);
+  const typingClearTimerRef = useRef<number | null>(null);
+
+  const roomRef = useMemo(() => doc(db, "rooms", "global"), []);
+  const messagesRef = useMemo(
+    () => collection(db, "rooms", "global", "messages"),
+    []
+  );
+  const presenceRef = useMemo(() => doc(db, "presence", username), [username]);
+  const memberRef = useMemo(
+    () => doc(db, "rooms", "global", "members", username),
+    [username]
+  );
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (chatUser && e.key === "/") {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [chatUser]);
-
-  useEffect(() => {
-    if (username) {
-      socket.emit("join", username);
-    }
-    if (username && chatUser) {
-      socket.emit("get_history", { user1: username, user2: chatUser });
-      setRecentChats((prev) =>
-        chatUser && !prev.includes(chatUser) ? [...prev, chatUser] : prev
-      );
-    }
-  }, [username, chatUser]);
-
-  useEffect(() => {
-    const handleOnlineUsers = (users: string[]) => {
-      setOnlineUsers(users.filter((u) => u !== username));
-    };
-    socket.on("online_users", handleOnlineUsers);
+    socket.emit("join", username);
     socket.emit("get_online_users");
+
+    const handleOnlineUsers = (users: string[]) => {
+      setOnlineUsers(users);
+    };
+
+    socket.on("online_users", handleOnlineUsers);
+
     return () => {
       socket.off("online_users", handleOnlineUsers);
     };
   }, [username]);
 
   useEffect(() => {
-    const handleReceiveMessage = (data: {
-      message: string;
-      sender: string;
-      recipient: string;
-    }) => {
-      const time = new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      if (
-        (data.sender === username && data.recipient === chatUser) ||
-        (data.sender === chatUser && data.recipient === username)
-      ) {
-        setChat((prev) => [
-          ...prev,
-          {
-            message: data.message,
-            self: data.sender === username,
-            time,
-            sender: data.sender,
-          },
-        ]);
-        setRecentChats((prev) =>
-          data.sender !== username && !prev.includes(data.sender)
-            ? [...prev, data.sender]
-            : prev
-        );
-      }
-    };
-    const handleChatHistory = (history: any[]) => {
-      const mapped = history.map((msg) => ({
-        message: msg.message,
-        self: msg.sender === username,
-        time: new Date(msg.time).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        sender: msg.sender,
-      }));
-      setChat(mapped);
-    };
     const handleTyping = (data: {
       sender: string;
       recipient: string;
       typing: boolean;
     }) => {
-      if (data.sender === chatUser && data.recipient === username) {
-        setIsTyping(data.typing);
+      const dmMatch =
+        activeChatUser &&
+        ((data.sender === activeChatUser && data.recipient === username) ||
+          (data.sender === username && data.recipient === activeChatUser));
+
+      if (dmMatch) {
+        setTypingSender(data.typing ? data.sender : null);
+
+        if (typingClearTimerRef.current) {
+          window.clearTimeout(typingClearTimerRef.current);
+          typingClearTimerRef.current = null;
+        }
+
+        if (data.typing) {
+          typingClearTimerRef.current = window.setTimeout(() => {
+            setTypingSender(null);
+            typingClearTimerRef.current = null;
+          }, 1300);
+        }
       }
     };
-    socket.on("receive_message", handleReceiveMessage);
-    socket.on("chat_history", handleChatHistory);
+
     socket.on("typing", handleTyping);
+
     return () => {
-      socket.off("receive_message", handleReceiveMessage);
-      socket.off("chat_history", handleChatHistory);
       socket.off("typing", handleTyping);
     };
-  }, [username, chatUser]);
+  }, [activeChatUser, username]);
 
-  const sendMessage = () => {
-    if (message.trim()) {
-      socket.emit("send_message", {
-        message,
-        sender: username,
-        recipient: chatUser,
-      });
-      setMessage("");
+  useEffect(() => {
+    const q = query(messagesRef, orderBy("createdAt", "asc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const data = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return {
+            id: d.id,
+            senderName: String(raw.senderName || raw.sender || "Unknown"),
+            text: String(raw.text || raw.message || ""),
+            recipientName:
+              typeof raw.recipientName === "string"
+                ? raw.recipientName
+                : typeof raw.recipient === "string"
+                ? raw.recipient
+                : undefined,
+            createdAt: raw.createdAt as { seconds?: number } | undefined,
+          };
+        });
+        setMessages(data);
+      },
+      (err) => {
+        setSendError(
+          formatFirestoreError(err, "Could not read messages from Firestore")
+        );
+      }
+    );
+    return () => unsub();
+  }, [messagesRef]);
+
+  useEffect(() => {
+    setDoc(
+      roomRef,
+      {
+        name: "Global Room",
+        description: "Public chat room",
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ).catch(() => undefined);
+
+    setDoc(
+      presenceRef,
+      {
+        isOnline: true,
+        inRoom: true,
+        roomId: "global",
+        username,
+        updatedAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
+      },
+      { merge: true }
+    ).catch(() => undefined);
+
+    setDoc(
+      memberRef,
+      {
+        username,
+        isOnline: true,
+        joinedAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
+      },
+      { merge: true }
+    ).catch(() => undefined);
+
+    return () => {
+      updateDoc(presenceRef, {
+        isOnline: false,
+        inRoom: false,
+        updatedAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
+      }).catch(() => undefined);
+
+      updateDoc(memberRef, {
+        isOnline: false,
+        lastSeenAt: serverTimestamp(),
+      }).catch(() => undefined);
+    };
+  }, [memberRef, presenceRef, roomRef, username]);
+
+  useEffect(() => {
+    if (!listRef.current) {
+      return;
+    }
+    listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [messages, activeChatUser]);
+
+  useEffect(() => {
+    setTypingSender(null);
+
+    if (typingTimerRef.current) {
+      window.clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+
+    if (typingClearTimerRef.current) {
+      window.clearTimeout(typingClearTimerRef.current);
+      typingClearTimerRef.current = null;
+    }
+
+    socket.emit("typing", {
+      sender: username,
+      recipient: activeChatUser,
+      typing: false,
+    });
+  }, [activeChatUser, username]);
+
+  const visibleMessages = useMemo(() => {
+    if (!activeChatUser) {
+      return messages.filter((m) => !m.recipientName);
+    }
+
+    return messages.filter(
+      (m) =>
+        (m.senderName === username && m.recipientName === activeChatUser) ||
+        (m.senderName === activeChatUser && m.recipientName === username)
+    );
+  }, [activeChatUser, messages, username]);
+
+  const directMessageContacts = useMemo(() => {
+    const contacts = new Set<string>();
+
+    messages.forEach((m) => {
+      if (!m.recipientName) {
+        return;
+      }
+
+      if (m.senderName === username && m.recipientName !== username) {
+        contacts.add(m.recipientName);
+      }
+
+      if (m.recipientName === username && m.senderName !== username) {
+        contacts.add(m.senderName);
+      }
+    });
+
+    return Array.from(contacts);
+  }, [messages, username]);
+
+  const chatContacts = useMemo(() => {
+    const contacts = new Set<string>([
+      ...directMessageContacts,
+      ...onlineUsers.filter((user) => user !== username),
+    ]);
+
+    return Array.from(contacts).sort((left, right) =>
+      left.localeCompare(right)
+    );
+  }, [directMessageContacts, onlineUsers, username]);
+
+  const isUserOnline = (user: string) => onlineUsers.includes(user);
+  const isOtherUserTyping = Boolean(typingSender && activeChatUser);
+
+  const sendMessage = async () => {
+    const text = message.trim();
+    if (!text) {
+      return;
+    }
+
+    if (activeChatUser) {
       socket.emit("typing", {
         sender: username,
-        recipient: chatUser,
+        recipient: activeChatUser,
         typing: false,
       });
-      setRecentChats((prev) =>
-        chatUser && !prev.includes(chatUser) ? [...prev, chatUser] : prev
+    }
+
+    if (typingTimerRef.current) {
+      window.clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+
+    setSendError("");
+
+    try {
+      await addDoc(messagesRef, {
+        senderName: username,
+        senderId: username,
+        recipientName: activeChatUser || null,
+        text,
+        type: "text",
+        senderOnline: true,
+        senderLastSeenAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+
+      await updateDoc(roomRef, {
+        lastMessage: text,
+        lastMessageAt: serverTimestamp(),
+        lastMessageSender: activeChatUser
+          ? `${username} -> ${activeChatUser}`
+          : username,
+        updatedAt: serverTimestamp(),
+      }).catch(() => undefined);
+
+      setMessage("");
+    } catch (err) {
+      setSendError(
+        formatFirestoreError(
+          err,
+          "Message failed to send. Check Firestore rules and config"
+        )
       );
     }
   };
 
-  const sidebarUsers = Array.from(
-    new Set([...onlineUsers, ...recentChats.filter((u) => u !== username)])
-  );
+  const handleMessageChange = (value: string) => {
+    setMessage(value);
+
+    if (!activeChatUser) {
+      return;
+    }
+
+    socket.emit("typing", {
+      sender: username,
+      recipient: activeChatUser,
+      typing: true,
+    });
+
+    if (typingTimerRef.current) {
+      window.clearTimeout(typingTimerRef.current);
+    }
+
+    typingTimerRef.current = window.setTimeout(() => {
+      socket.emit("typing", {
+        sender: username,
+        recipient: activeChatUser,
+        typing: false,
+      });
+      typingTimerRef.current = null;
+    }, 1000);
+  };
 
   return (
     <div
       style={{
-        display: "flex",
-        height: "100vh",
-        width: "100vw",
-        fontFamily: "Arial",
-        background: darkMode ? "#181818" : "#fff",
-        color: darkMode ? "#eee" : "#222",
-        transition: "background 0.2s, color 0.2s",
+        display: "grid",
+        gridTemplateColumns: "260px 1fr",
+        width: "100%",
+        height: "100%",
+        minWidth: 0,
+        minHeight: 0,
         overflow: "hidden",
+        background: darkMode ? "#141414" : "#f5f7fb",
+        color: darkMode ? "#f0f0f0" : "#20242b",
       }}
     >
-      {}
-      <div
+      <style>{`
+        .typing-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          background: currentColor;
+          display: inline-block;
+          animation: typingPulse 1s infinite ease-in-out;
+        }
+
+        .typing-dot-1 {
+          animation-delay: 0s;
+        }
+
+        .typing-dot-2 {
+          animation-delay: 0.15s;
+        }
+
+        .typing-dot-3 {
+          animation-delay: 0.3s;
+        }
+
+        @keyframes typingPulse {
+          0%, 80%, 100% {
+            transform: translateY(0);
+            opacity: 0.45;
+          }
+          40% {
+            transform: translateY(-3px);
+            opacity: 1;
+          }
+        }
+      `}</style>
+      <aside
         style={{
-          width: "250px",
-          borderRight: darkMode ? "1px solid #333" : "1px solid #ccc",
-          background: darkMode ? "#222" : "#f5f5f5",
-          padding: "1rem 0.5rem",
+          borderRight: darkMode ? "1px solid #2a2a2a" : "1px solid #d8deea",
+          padding: "1rem",
           display: "flex",
           flexDirection: "column",
-          position: "fixed",
-          left: 0,
-          top: 0,
-          height: "100vh",
-          minHeight: "100vh",
-          zIndex: 20,
-          boxSizing: "border-box",
-          transition: "background 0.2s, border 0.2s",
-          overflow: "hidden",
+          gap: "0.75rem",
+          minHeight: 0,
+          minWidth: 0,
+          background: darkMode ? "#171717" : "#ffffff",
         }}
       >
-        <div
+        <h2 style={{ margin: 0 }}>Socket Chat</h2>
+        <h3 style={{ marginBottom: "0.25rem" }}>Chats</h3>
+        <button
+          onClick={() => setActiveChatUser("")}
           style={{
-            fontSize: "1.4em",
-            color: darkMode ? "#eee" : "#222",
-            fontFamily: "Inter, Segoe UI, sans-serif",
-            margin: "1rem 0",
-            fontWeight: 600,
-            textTransform: "uppercase",
+            border: "none",
+            borderRadius: 8,
+            padding: "0.5rem 0.6rem",
+            cursor: "pointer",
+            textAlign: "left",
+            background: activeChatUser
+              ? darkMode
+                ? "#262626"
+                : "#f4f7ff"
+              : darkMode
+              ? "#123047"
+              : "#d6e9ff",
+            color: darkMode ? "#f0f0f0" : "#20242b",
           }}
         >
-          Socket Chat
-        </div>
-
-        <h3 style={{ marginBottom: "1rem", color: "#007bff" }}>Chats</h3>
-        <div style={{ flex: 1, overflowY: "auto", marginBottom: "70px" }}>
-          {sidebarUsers.length === 0 && (
-            <div style={{ color: "#888", fontSize: "0.95em" }}>
-              No chats yet
+          Global Room Chat
+        </button>
+        <div style={{ overflowY: "auto", minHeight: 0, minWidth: 0 }}>
+          {chatContacts.length === 0 && (
+            <div style={{ opacity: 0.7, fontSize: "0.9rem" }}>
+              No direct chats yet
             </div>
           )}
-          {sidebarUsers.map((user) => (
+          {chatContacts.map((user) => {
+            const online = isUserOnline(user);
+
+            return (
+              <button
+                key={user}
+                onClick={() => setActiveChatUser(user)}
+                style={{
+                  width: "100%",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "0.55rem 0.65rem",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  marginBottom: "0.35rem",
+                  fontSize: "0.95rem",
+                  background:
+                    activeChatUser === user
+                      ? darkMode
+                        ? "#123047"
+                        : "#d6e9ff"
+                      : darkMode
+                      ? "#1c1c1c"
+                      : "transparent",
+                  color: darkMode ? "#f0f0f0" : "#20242b",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: online ? "#22c55e" : "#ef4444",
+                    boxShadow: online ? "0 0 0 3px rgba(34,197,94,0.15)" : "0 0 0 3px rgba(239,68,68,0.12)",
+                    flex: "0 0 auto",
+                  }}
+                />
+                <span>{user}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          style={{
+            marginTop: "auto",
+            borderTop: darkMode ? "1px solid #2a2a2a" : "1px solid #e1e7f0",
+            paddingTop: "0.9rem",
+            position: "relative",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "0.5rem",
+            }}
+          >
+            <div style={{ fontSize: "0.9rem", opacity: 0.8, minWidth: 0 }}>
+              Logged in as {username}
+            </div>
+            <button
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              aria-label="Account menu"
+              style={{
+                border: "none",
+                borderRadius: 8,
+                width: 34,
+                height: 34,
+                cursor: "pointer",
+                background: darkMode ? "#2a2a2a" : "#eef2ff",
+                color: darkMode ? "#f0f0f0" : "#20242b",
+                flex: "0 0 auto",
+                fontSize: "1.2rem",
+                lineHeight: 1,
+              }}
+            >
+              ⋮
+            </button>
+          </div>
+
+          {accountMenuOpen && (
             <div
-              key={user}
+              style={{
+                position: "absolute",
+                right: 0,
+                bottom: "3.2rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+                minWidth: 170,
+                padding: "0.65rem",
+                borderRadius: 12,
+                background: darkMode ? "#222222" : "#fff",
+                border: darkMode ? "1px solid #333" : "1px solid #d8deea",
+                boxShadow: "0 10px 24px rgba(0,0,0,0.12)",
+                zIndex: 20,
+              }}
+            >
+              {setDarkMode && (
+                <button
+                  onClick={() => {
+                    setDarkMode(!darkMode);
+                    setAccountMenuOpen(false);
+                  }}
+                  style={{
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "0.6rem 0.75rem",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    background: darkMode ? "#2b2b2b" : "#eef2ff",
+                    color: darkMode ? "#f0f0f0" : "#20242b",
+                  }}
+                >
+                  {darkMode ? "Light Mode" : "Dark Mode"}
+                </button>
+              )}
+              {onLogout && (
+                <button
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    onLogout();
+                  }}
+                  style={{
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "0.6rem 0.75rem",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    background: darkMode ? "#3a1f1f" : "#ffe3e3",
+                    color: darkMode ? "#ffd6d6" : "#7f1d1d",
+                  }}
+                >
+                  Logout
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+
+      <main style={{ display: "grid", gridTemplateRows: "1fr auto", minHeight: 0 }}>
+        <div
+          ref={listRef}
+          style={{
+            overflowY: "auto",
+            overflowX: "hidden",
+            padding: "1rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.65rem",
+            minHeight: 0,
+            minWidth: 0,
+            background: darkMode ? "#141414" : "#f5f7fb",
+          }}
+        >
+          <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+            {activeChatUser ? `Chatting with ${activeChatUser}` : "Global room messages"}
+          </div>
+          {activeChatUser && isOtherUserTyping && (
+            <div
               style={{
                 display: "flex",
                 alignItems: "center",
-                padding: "0.5rem 0.5rem",
-                cursor: "pointer",
-                background:
-                  user === chatUser
-                    ? darkMode
-                      ? "#222a"
-                      : "#e6f7ff"
-                    : "transparent",
-                borderRadius: "8px",
-                marginBottom: "4px",
+                gap: "0.45rem",
+                marginTop: "0.35rem",
+                marginBottom: "0.55rem",
+                padding: "0.45rem 0.65rem",
+                width: "fit-content",
+                borderRadius: 999,
+                color: darkMode ? "#cfe0ff" : "#1d4ed8",
+                background: darkMode ? "rgba(31, 41, 55, 0.9)" : "#e8efff",
+                border: darkMode ? "1px solid #31415a" : "1px solid #bfd2ff",
               }}
-              onClick={() => onSelectUser(user)}
             >
-              {/* Show green dot only if online */}
-              <span style={{ fontSize: "1.2em", marginRight: "8px" }}>
-                {onlineUsers.includes(user) ? (
-                  <span style={{ color: "#28a745" }}>🔵</span>
-                ) : (
-                  <span style={{ color: "#888" }}>⚪</span>
-                )}
+              <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>
+                {typingSender}
+              </span>
+              <span style={{ fontSize: "0.85rem", opacity: 0.85 }}>
+                is typing
               </span>
               <span
                 style={{
-                  fontWeight: user === chatUser ? "bold" : "normal",
-                  color: darkMode ? "#eee" : "#333",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.28rem",
+                  padding: "0.35rem 0.5rem",
+                  borderRadius: 999,
+                  background: darkMode ? "#111827" : "#dbeafe",
+                }}
+                aria-label={`${typingSender} is typing`}
+              >
+                <span className="typing-dot typing-dot-1" />
+                <span className="typing-dot typing-dot-2" />
+                <span className="typing-dot typing-dot-3" />
+              </span>
+            </div>
+          )}
+          {visibleMessages.map((m) => (
+            <div
+              key={m.id}
+              style={{
+                alignSelf: m.senderName === username ? "flex-end" : "flex-start",
+                maxWidth: "70%",
+              }}
+            >
+              <div style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: 4 }}>
+                {m.senderName}
+              </div>
+              <div
+                style={{
+                  borderRadius: 12,
+                  padding: "0.6rem 0.8rem",
+                  background:
+                    m.senderName === username
+                      ? darkMode
+                        ? "#123047"
+                        : "#d6e9ff"
+                      : darkMode
+                      ? "#1f1f1f"
+                      : "#ffffff",
+                  border: darkMode ? "1px solid #2f2f2f" : "1px solid #dde3ef",
                 }}
               >
-                {user}
-              </span>
+                {m.text}
+              </div>
+              <div
+                style={{
+                  fontSize: "0.7rem",
+                  opacity: 0.65,
+                  marginTop: 3,
+                  textAlign: m.senderName === username ? "right" : "left",
+                }}
+              >
+                {formatMessageTime(m.createdAt)}
+              </div>
             </div>
           ))}
         </div>
-        {/* Profile section at bottom left */}
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            bottom: 0,
-            width: "100%",
-            padding: "1rem 0.5rem",
-            borderTop: darkMode ? "1px solid #333" : "1px solid #ddd",
-            background: darkMode ? "#222" : "#f5f5f5",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.8rem",
-            zIndex: 30,
-            boxSizing: "border-box",
-          }}
-        >
-          <DefaultUserIcon />
-          <span
-            style={{
-              fontWeight: "bold",
-              fontSize: "1.1em",
-              color: darkMode ? "#eee" : "#222",
-            }}
-          >
-            {username}
-          </span>
-          <SettingsIcon onClick={() => setSettingsOpen(true)} />
-        </div>
-      </div>
 
-      {/* Chat Interface */}
-      <div
-        style={{
-          flex: 1,
-          marginLeft: "250px",
-          display: "flex",
-          flexDirection: "column",
-          height: "100vh",
-          padding: "2rem",
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        <h2>
-          {chatUser ? (
-            <>
-              Chatting with <span style={{ color: "#007bff" }}>{chatUser}</span>
-              {!onlineUsers.includes(chatUser) && (
-                <span
-                  style={{
-                    color: "#888",
-                    fontSize: "0.9em",
-                    marginLeft: "8px",
-                  }}
-                >
-                  (offline)
-                </span>
-              )}
-            </>
-          ) : (
-            <span style={{ color: "#888" }}>
-              Select a chat to start chatting
-            </span>
-          )}
-        </h2>
         <div
           style={{
-            flex: 1,
-            margin: "1rem 0",
-            overflowY: "auto",
-            border: darkMode ? "1px solid #333" : "1px solid #ccc",
-            borderRadius: "8px",
-            padding: "1rem",
-            background: darkMode ? "#222" : "#f9f9f9",
-            minHeight: 0,
-            maxHeight: "calc(100vh - 180px)",
-            transition: "background 0.2s, border 0.2s",
+            borderTop: darkMode ? "1px solid #2a2a2a" : "1px solid #d8deea",
+            padding: "0.9rem",
+            display: "flex",
+            gap: "0.5rem",
+            minWidth: 0,
+            background: darkMode ? "#171717" : "#ffffff",
           }}
         >
-          {chatUser ? (
-            chat.map((c, i) => (
-              <div
-                key={i}
-                style={{
-                  textAlign: c.self ? "right" : "left",
-                  margin: "0.5rem 0",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "0.75em",
-                    color: "#888",
-                    marginBottom: "2px",
-                  }}
-                >
-                  {c.sender}
-                </div>
-                <span
-                  style={{
-                    background: c.self
-                      ? darkMode
-                        ? "#2e4d2e"
-                        : "#d1ffd6"
-                      : darkMode
-                      ? "#333"
-                      : "#e0e0e0",
-                    padding: "0.5rem 1rem",
-                    borderRadius: "20px",
-                    display: "inline-block",
-                    maxWidth: "70%",
-                    position: "relative",
-                  }}
-                >
-                  {c.message}
-                  <span
-                    style={{
-                      fontSize: "0.65em",
-                      color: "#888",
-                      marginLeft: "8px",
-                    }}
-                  >
-                    {c.time}
-                  </span>
-                </span>
-              </div>
-            ))
-          ) : (
-            <div
-              style={{ color: "#888", textAlign: "center", marginTop: "100px" }}
-            >
-              Select a chat to start chatting.
-            </div>
-          )}
-        </div>
-        {/* Fixed input at bottom */}
-        <div
-          style={{
-            position: "fixed",
-            left: 250,
-            right: 0,
-            bottom: 0,
-            background: darkMode ? "#181818" : "#fff",
-            padding: "1rem 2rem",
-            borderTop: darkMode ? "1px solid #333" : "1px solid #eee",
-            zIndex: 10,
-            transition: "background 0.2s, border 0.2s",
-          }}
-        >
-          {isTyping && chatUser && (
-            <div
-              style={{
-                color: "#007bff",
-                marginBottom: "0.5rem",
-                fontSize: "0.9em",
-                maxWidth: "1000px",
-                marginLeft: "auto",
-                marginRight: "auto",
-              }}
-            >
-              {chatUser} is typing...
-            </div>
-          )}
-          <div
+          <input
+            type="text"
+            value={message}
+            onChange={(e) => handleMessageChange(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+            onBlur={() => {
+              if (!activeChatUser) {
+                return;
+              }
+
+              socket.emit("typing", {
+                sender: username,
+                recipient: activeChatUser,
+                typing: false,
+              });
+            }}
+            placeholder={
+              activeChatUser
+                ? `Type a message to ${activeChatUser}`
+                : "Type a message"
+            }
             style={{
-              display: "flex",
-              gap: "0.5rem",
-              maxWidth: "1000px",
-              margin: "0 auto",
+              flex: 1,
+              borderRadius: 8,
+              border: darkMode ? "1px solid #333" : "1px solid #ced7e7",
+              padding: "0.6rem 0.75rem",
+              background: darkMode ? "#101010" : "#f8fbff",
+              color: darkMode ? "#f0f0f0" : "#20242b",
+            }}
+          />
+          <button
+            onClick={sendMessage}
+            style={{
+              border: "none",
+              borderRadius: 8,
+              padding: "0.6rem 1rem",
+              cursor: "pointer",
+              background: "#1f7aec",
+              color: "#fff",
             }}
           >
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Type a message..."
-              value={message}
-              disabled={!chatUser}
-              onChange={(e) => {
-                setMessage(e.target.value);
-                if (chatUser) {
-                  socket.emit("typing", {
-                    sender: username,
-                    recipient: chatUser,
-                    typing: !!e.target.value,
-                  });
-                }
-              }}
-              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-              style={{
-                flex: 1,
-                padding: "0.5rem 1rem",
-                borderRadius: "20px",
-                border: darkMode ? "1px solid #333" : "1px solid #ccc",
-                outline: "none",
-                background: chatUser
-                  ? darkMode
-                    ? "#222"
-                    : "white"
-                  : darkMode
-                  ? "#333"
-                  : "#eee",
-                color: darkMode ? "#eee" : "#222",
-                transition: "background 0.2s, border 0.2s, color 0.2s",
-              }}
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!chatUser}
-              style={{
-                padding: "0.5rem 1rem",
-                borderRadius: "20px",
-                backgroundColor: chatUser
-                  ? "#007bff"
-                  : darkMode
-                  ? "#444"
-                  : "#aaa",
-                color: "white",
-                border: "none",
-                cursor: chatUser ? "pointer" : "not-allowed",
-                transition: "background 0.2s",
-              }}
-            >
-              Send
-            </button>
-          </div>
+            Send
+          </button>
         </div>
-        {/* Settings Panel */}
-        {settingsOpen && setDarkMode && (
+        {sendError && (
           <div
             style={{
-              position: "fixed",
-              left: 0,
-              top: 0,
-              width: "100vw",
-              height: "100vh",
-              zIndex: 100,
-              background: "rgba(0,0,0,0.2)",
-              backdropFilter: "blur(8px)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              padding: "0 0.9rem 0.8rem 0.9rem",
+              color: "#d7263d",
+              fontSize: "0.85rem",
             }}
-            onClick={() => setSettingsOpen(false)}
           >
-            <div
-              style={{
-                background: darkMode ? "#222" : "#fff",
-                color: darkMode ? "#eee" : "#222",
-                padding: "2rem 2.5rem",
-                borderRadius: "18px",
-                boxShadow: "0 4px 32px rgba(0,0,0,0.15)",
-                minWidth: "320px",
-                minHeight: "180px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                position: "relative",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h2 style={{ marginBottom: "2rem" }}>Settings</h2>
-              {/* Theme Switcher Slider */}
-              <div
-                style={{
-                  marginBottom: "2rem",
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "0.5rem 0",
-                  background: darkMode ? "#181818" : "#f5f5f5",
-                  borderRadius: "8px",
-                }}
-              >
-                <span style={{ fontWeight: 500, fontSize: "1.1em" }}>
-                  Dark mode
-                </span>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    minWidth: "80px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={darkMode}
-                    onChange={() => setDarkMode(!darkMode)}
-                    style={{ display: "none" }}
-                  />
-                  <span
-                    style={{
-                      width: "44px",
-                      height: "24px",
-                      background: darkMode ? "#007bff" : "#ccc",
-                      borderRadius: "12px",
-                      position: "relative",
-                      transition: "background 0.2s",
-                      marginRight: "8px",
-                      display: "inline-block",
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: "2px",
-                        left: darkMode ? "22px" : "2px",
-                        width: "20px",
-                        height: "20px",
-                        background: "#fff",
-                        borderRadius: "50%",
-                        boxShadow: "0 1px 4px rgba(0,0,0,0.12)",
-                        transition: "left 0.2s",
-                        border: "1px solid #ccc",
-                      }}
-                    />
-                  </span>
-                  <span
-                    style={{
-                      fontWeight: 500,
-                      color: darkMode ? "#007bff" : "#888",
-                    }}
-                  >
-                    {darkMode ? "On" : "Off"}
-                  </span>
-                </label>
-              </div>
-              <button
-                onClick={() => setSettingsOpen(false)}
-                style={{
-                  padding: "0.5rem 1.5rem",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: "#888",
-                  color: "#fff",
-                  fontWeight: "bold",
-                  fontSize: "1em",
-                  cursor: "pointer",
-                  marginTop: "0.5rem",
-                }}
-              >
-                Close
-              </button> 
-              </div>
+            {sendError}
           </div>
         )}
-        ;
-      </div>
+      </main>
     </div>
   );
 };
