@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
-// Settings icon SVG
 const SettingsIcon = ({ onClick }: { onClick: () => void }) => (
   <svg
     onClick={onClick}
@@ -13,8 +12,6 @@ const SettingsIcon = ({ onClick }: { onClick: () => void }) => (
     <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7zm7.43-2.27l1.77-1.02a.5.5 0 0 0 .18-.68l-1.68-2.91a.5.5 0 0 0-.61-.22l-2.08.8a7.03 7.03 0 0 0-1.51-.88l-.32-2.19a.5.5 0 0 0-.5-.42h-3.36a.5.5 0 0 0-.5.42l-.32 2.19c-.54.22-1.05.51-1.51.88l-2.08-.8a.5.5 0 0 0-.61.22l-1.68 2.91a.5.5 0 0 0 .18.68l1.77 1.02c-.04.32-.07.65-.07.98s.03.66.07.98l-1.77 1.02a.5.5 0 0 0-.18.68l1.68 2.91a.5.5 0 0 0 .61.22l2.08-.8c.46.37.97.66 1.51.88l.32 2.19a.5.5 0 0 0 .5.42h3.36a.5.5 0 0 0 .5-.42l.32-2.19c.54-.22 1.05-.51 1.51-.88l2.08.8a.5.5 0 0 0 .61-.22l1.68-2.91a.5.5 0 0 0-.18-.68l-1.77-1.02c.04-.32.07-.65.07-.98s-.03-.66-.07-.98z" />
   </svg>
 );
-
-// Default user icon SVG
 const DefaultUserIcon = () => (
   <svg
     width="40"
@@ -38,18 +35,24 @@ interface Message {
 interface ChatProps {
   username: string;
   chatUser: string;
-  goBack: () => void;
   onSelectUser: (user: string) => void;
   darkMode?: boolean;
   setDarkMode?: (v: boolean) => void;
 }
 
-const socket = io("http://localhost:5000");
+const isLocalHost =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+const localSocketUrl =
+  import.meta.env.VITE_SOCKET_LOCAL_URL?.trim() || "http://localhost:5000";
+const deployedSocketUrl = import.meta.env.VITE_SOCKET_URL?.trim();
+const socketUrl =
+  (isLocalHost ? localSocketUrl : deployedSocketUrl) || localSocketUrl;
+const socket = io(socketUrl);
 
 const Chat: React.FC<ChatProps> = ({
   username,
   chatUser,
-  goBack,
   onSelectUser,
   darkMode = false,
   setDarkMode,
@@ -62,7 +65,6 @@ const Chat: React.FC<ChatProps> = ({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Focus input on "/" key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (chatUser && e.key === "/") {
@@ -74,12 +76,10 @@ const Chat: React.FC<ChatProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [chatUser]);
 
-  // Register username with server on mount
   useEffect(() => {
     if (username) {
       socket.emit("join", username);
     }
-    // Request chat history when chatUser changes
     if (username && chatUser) {
       socket.emit("get_history", { user1: username, user2: chatUser });
       setRecentChats((prev) =>
@@ -88,7 +88,6 @@ const Chat: React.FC<ChatProps> = ({
     }
   }, [username, chatUser]);
 
-  // Listen for online users list
   useEffect(() => {
     const handleOnlineUsers = (users: string[]) => {
       setOnlineUsers(users.filter((u) => u !== username));
@@ -100,7 +99,6 @@ const Chat: React.FC<ChatProps> = ({
     };
   }, [username]);
 
-  // Receive messages, chat history, and typing indicators from server
   useEffect(() => {
     const handleReceiveMessage = (data: {
       message: string;
@@ -181,7 +179,6 @@ const Chat: React.FC<ChatProps> = ({
     }
   };
 
-  // Sidebar users: union of online users and recent chats (excluding self)
   const sidebarUsers = Array.from(
     new Set([...onlineUsers, ...recentChats.filter((u) => u !== username)])
   );
@@ -191,13 +188,15 @@ const Chat: React.FC<ChatProps> = ({
       style={{
         display: "flex",
         height: "100vh",
+        width: "100vw",
         fontFamily: "Arial",
         background: darkMode ? "#181818" : "#fff",
         color: darkMode ? "#eee" : "#222",
         transition: "background 0.2s, color 0.2s",
+        overflow: "hidden",
       }}
     >
-      {/* Sidebar: Fixed position */}
+      {}
       <div
         style={{
           width: "250px",
@@ -214,9 +213,9 @@ const Chat: React.FC<ChatProps> = ({
           zIndex: 20,
           boxSizing: "border-box",
           transition: "background 0.2s, border 0.2s",
+          overflow: "hidden",
         }}
       >
-        {/* Title */}
         <div
           style={{
             fontSize: "1.4em",
@@ -316,6 +315,7 @@ const Chat: React.FC<ChatProps> = ({
           height: "100vh",
           padding: "2rem",
           position: "relative",
+          overflow: "hidden",
         }}
       >
         <h2>
@@ -413,7 +413,7 @@ const Chat: React.FC<ChatProps> = ({
         <div
           style={{
             position: "fixed",
-            left: 250, // width of sidebar
+            left: 250,
             right: 0,
             bottom: 0,
             background: darkMode ? "#181818" : "#fff",
@@ -423,7 +423,6 @@ const Chat: React.FC<ChatProps> = ({
             transition: "background 0.2s, border 0.2s",
           }}
         >
-          {/* Typing indicator above input */}
           {isTyping && chatUser && (
             <div
               style={{
@@ -618,8 +617,8 @@ const Chat: React.FC<ChatProps> = ({
                 }}
               >
                 Close
-              </button>
-            </div>
+              </button> 
+              </div>
           </div>
         )}
         ;

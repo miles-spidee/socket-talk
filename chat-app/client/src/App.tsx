@@ -15,28 +15,17 @@ const App: React.FC = () => {
     );
   }
 
-  const goBack = () => setChatUser("");
-
-  return (
-    <div
-      style={{
-        height: "100vh",
-        width: "100vw",
-        margin: 0,
-        padding: 0,
-        overflow: "hidden",
-      }}
-    >
-      <Chat
-        username={username}
-        chatUser={chatUser}
-        goBack={goBack}
-        onSelectUser={setChatUser}
-        darkMode={darkMode}
-        setDarkMode={setDarkMode}
-      />
-    </div>
-  );
+ return (
+  <div style={{ height: "100vh", width: "100vw", margin: 0, padding: 0 }}>
+    <Chat
+      username={username}
+      chatUser={chatUser}
+      onSelectUser={setChatUser}
+      darkMode={darkMode}
+      setDarkMode={setDarkMode}
+    />
+  </div>
+);
 };
 
 export default App;

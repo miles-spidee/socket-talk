@@ -1,7 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('http://localhost:5000');
+const isLocalHost =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
+const localSocketUrl =
+  import.meta.env.VITE_SOCKET_LOCAL_URL?.trim() || 'http://localhost:5000';
+const deployedSocketUrl = import.meta.env.VITE_SOCKET_URL?.trim();
+const socketUrl = (isLocalHost ? localSocketUrl : deployedSocketUrl) || localSocketUrl;
+const socket = io(socketUrl);
 
 interface UsersListProps {
   currentUser: string;
