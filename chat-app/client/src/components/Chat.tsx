@@ -4,11 +4,13 @@ import {
   addDoc,
   collection,
   doc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
+  writeBatch,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebase.ts";
@@ -76,6 +78,7 @@ const deployedSocketUrl = import.meta.env.VITE_SOCKET_URL?.trim();
 const socketUrl =
   (isLocalHost ? localSocketUrl : deployedSocketUrl) || localSocketUrl;
 const socket = io(socketUrl);
+const adminAccessCode = import.meta.env.VITE_ADMIN_ACCESS_CODE?.trim() || "";
 
 const Chat: React.FC<ChatProps> = ({
   username,
@@ -85,6 +88,7 @@ const Chat: React.FC<ChatProps> = ({
 }) => {
   const SIDEBAR_OPEN_WIDTH = 260;
   const SIDEBAR_COLLAPSED_WIDTH = 18;
+  const isAdminUser = username === "aki";
 
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<RoomMessage[]>([]);
@@ -93,6 +97,12 @@ const Chat: React.FC<ChatProps> = ({
   const [typingSender, setTypingSender] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string>("");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [adminAccessUnlocked, setAdminAccessUnlocked] = useState(
+    () => window.localStorage.getItem("sockettalk_admin_unlocked") === "true"
+  );
+  const [adminAccessInput, setAdminAccessInput] = useState("");
+  const [adminResetInProgress, setAdminResetInProgress] = useState(false);
+  const [adminResetMessage, setAdminResetMessage] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<number | null>(null);
@@ -101,6 +111,10 @@ const Chat: React.FC<ChatProps> = ({
   const roomRef = useMemo(() => doc(db, "rooms", "global"), []);
   const messagesRef = useMemo(
     () => collection(db, "rooms", "global", "messages"),
+    []
+  );
+  const membersRef = useMemo(
+    () => collection(db, "rooms", "global", "members"),
     []
   );
   const presenceRef = useMemo(() => doc(db, "presence", username), [username]);
@@ -397,6 +411,89 @@ const Chat: React.FC<ChatProps> = ({
     }, 1000);
   };
 
+  const handleAdminReset = async () => {
+    const confirmed = window.confirm(
+      "Reset room data? This will delete all messages and room members."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setAdminResetInProgress(true);
+    setAdminResetMessage("");
+
+    try {
+      const messagesSnapshot = await getDocs(messagesRef);
+      if (!messagesSnapshot.empty) {
+        const batch = writeBatch(db);
+        messagesSnapshot.docs.forEach((messageDoc) => {
+          batch.delete(messageDoc.ref);
+        });
+        await batch.commit();
+      }
+
+      const membersSnapshot = await getDocs(membersRef);
+      if (!membersSnapshot.empty) {
+        const batch = writeBatch(db);
+        membersSnapshot.docs.forEach((memberDoc) => {
+          batch.delete(memberDoc.ref);
+        });
+        await batch.commit();
+      }
+
+      await setDoc(
+        roomRef,
+        {
+          lastMessage: "",
+          lastMessageAt: serverTimestamp(),
+          lastMessageSender: "",
+          activeCount: 0,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setAdminResetMessage("Room messages and members were reset.");
+    } catch (err) {
+      setAdminResetMessage(
+        formatFirestoreError(err, "Reset failed. Check Firestore rules and config")
+      );
+    } finally {
+      setAdminResetInProgress(false);
+    }
+  };
+
+  const handleAdminUnlock = () => {
+    if (!isAdminUser) {
+      setAdminResetMessage("Admin settings are restricted to aki.");
+      return;
+    }
+
+    if (!adminAccessCode) {
+      setAdminResetMessage("Admin access is not configured on this build.");
+      return;
+    }
+
+    if (adminAccessInput.trim() !== adminAccessCode) {
+      setAdminResetMessage("Invalid admin code.");
+      return;
+    }
+
+    window.localStorage.setItem("sockettalk_admin_unlocked", "true");
+    setAdminAccessUnlocked(true);
+    setAdminAccessInput("");
+    setAdminResetMessage("Admin access unlocked.");
+  };
+
+  const handleAdminLock = () => {
+    window.localStorage.removeItem("sockettalk_admin_unlocked");
+    setAdminAccessUnlocked(false);
+    setAdminResetInProgress(false);
+    setAdminAccessInput("");
+    setAdminResetMessage("");
+  };
+
   return (
     <div
       style={{
@@ -583,6 +680,9 @@ const Chat: React.FC<ChatProps> = ({
             borderTop: darkMode ? "1px solid #2a2a2a" : "1px solid #e1e7f0",
             paddingTop: "0.9rem",
             position: "relative",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.85rem",
           }}
         >
           <div
@@ -653,6 +753,121 @@ const Chat: React.FC<ChatProps> = ({
                 >
                   {darkMode ? "Light Mode" : "Dark Mode"}
                 </button>
+              )}
+              {isAdminUser && (
+                <div
+                  style={{
+                    paddingTop: "0.35rem",
+                    marginTop: "0.15rem",
+                    borderTop: darkMode ? "1px solid #313131" : "1px solid #e4e9f2",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <div
+                    className="anonymous-pro-regular"
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "0.5rem",
+                      fontSize: "0.76rem",
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      opacity: 0.75,
+                    }}
+                  >
+                    <span>Admin</span>
+                    <span style={{ opacity: 0.6 }}>{adminAccessUnlocked ? "unlocked" : "restricted"}</span>
+                  </div>
+
+                  {!adminAccessUnlocked ? (
+                    <>
+                      <input
+                        className="nunito"
+                        type="password"
+                        value={adminAccessInput}
+                        onChange={(event) => setAdminAccessInput(event.target.value)}
+                        placeholder="Admin passcode"
+                        style={{
+                          width: "100%",
+                          boxSizing: "border-box",
+                          borderRadius: 8,
+                          border: darkMode ? "1px solid #31384a" : "1px solid #cfd8e6",
+                          background: darkMode ? "#0d1220" : "#fff",
+                          color: darkMode ? "#f0f0f0" : "#20242b",
+                          padding: "0.55rem 0.7rem",
+                        }}
+                      />
+                      <button
+                        className="anonymous-pro-regular"
+                        onClick={handleAdminUnlock}
+                        style={{
+                          width: "100%",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "0.58rem 0.75rem",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          background: darkMode ? "#243248" : "#e7eefc",
+                          color: darkMode ? "#e9f0ff" : "#1f2b44",
+                        }}
+                      >
+                        Unlock admin settings
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="anonymous-pro-regular"
+                        onClick={handleAdminReset}
+                        disabled={adminResetInProgress}
+                        style={{
+                          width: "100%",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "0.58rem 0.75rem",
+                          cursor: adminResetInProgress ? "not-allowed" : "pointer",
+                          textAlign: "left",
+                          background: darkMode ? "#3a1f1f" : "#ffe8e8",
+                          color: darkMode ? "#ffd6d6" : "#8b1d1d",
+                          opacity: adminResetInProgress ? 0.75 : 1,
+                        }}
+                      >
+                        {adminResetInProgress ? "Resetting..." : "Reset room messages & members"}
+                      </button>
+                      <button
+                        className="anonymous-pro-regular"
+                        onClick={handleAdminLock}
+                        style={{
+                          width: "100%",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "0.55rem 0.75rem",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          background: darkMode ? "#262626" : "#eef2f7",
+                          color: darkMode ? "#f0f0f0" : "#20242b",
+                        }}
+                      >
+                        Lock admin settings
+                      </button>
+                    </>
+                  )}
+
+                  {adminResetMessage && (
+                    <div
+                      className="nunito"
+                      style={{
+                        fontSize: "0.76rem",
+                        color: darkMode ? "#9fe2b0" : "#166534",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {adminResetMessage}
+                    </div>
+                  )}
+                </div>
               )}
               {onLogout && (
                 <button
